@@ -1,0 +1,111 @@
+//@version=6
+strategy(
+     title = "Quant Strategy V6 ",
+     overlay = true,
+     initial_capital = 100000,
+     default_qty_type = strategy.percent_of_equity,
+     default_qty_value = 10,
+     pyramiding = 0
+)
+
+// =========================
+// INPUTS
+// =========================
+rsiLen  = input.int(14, "RSI Length")
+mfiLen  = input.int(14, "MFI Length")
+bbLen   = input.int(20, "BB Length")
+bbMult  = input.float(2.0, "BB Mult")
+atrLen = input.int(14, "ATR Length")
+
+// =========================
+// INDICADORES
+// =========================
+rsi = ta.rsi(close, rsiLen)
+mfi = ta.mfi(hlc3, mfiLen)
+
+basis = ta.sma(close, bbLen)
+dev   = bbMult * ta.stdev(close, bbLen)
+bbU   = basis + dev
+bbL   = basis - dev
+
+atr = ta.atr(atrLen)
+
+// =========================
+// MARKOV (ESTADOS DISCRETOS)
+// =========================
+ret = math.log(close / close[1])
+
+var int state = 0
+if ret > 0.002
+    state := 1
+else if ret < -0.002
+    state := -1
+else
+    state := 0
+
+// =========================
+// MATRIZ DE TRANSICIÓN
+// =========================
+var float upUp = 1
+var float upDn = 1
+var float dnUp = 1
+var float dnDn = 1
+
+if state[1] == 1 and state == 1
+    upUp += 1
+if state[1] == 1 and state == -1
+    upDn += 1
+if state[1] == -1 and state == 1
+    dnUp += 1
+if state[1] == -1 and state == -1
+    dnDn += 1
+
+pUpFromUp = upUp / (upUp + upDn)
+pUpFromDn = dnUp / (dnUp + dnDn)
+
+var float markovBull = 0.5
+if state[1] == 1
+    markovBull := pUpFromUp
+else if state[1] == -1
+    markovBull := pUpFromDn
+
+// =========================
+// FILTROS QUANT
+// =========================
+longCond =
+     rsi < 30 and
+     mfi < 20 and
+     close < bbL and
+     markovBull > 0.55
+
+shortCond =
+     rsi > 70 and
+     mfi > 80 and
+     close > bbU and
+     markovBull < 0.45
+
+// =========================
+// RISK MANAGEMENT (ATR)
+// =========================
+slMult = 1.8
+tpMult = 3.0
+
+longSL  = close - atr * slMult
+longTP  = close + atr * tpMult
+shortSL = close + atr * slMult
+shortTP = close - atr * tpMult
+
+if longCond
+    strategy.entry("LONG", strategy.long)
+    strategy.exit("LX", "LONG", stop = longSL, limit = longTP)
+
+if shortCond
+    strategy.entry("SHORT", strategy.short)
+    strategy.exit("SX", "SHORT", stop = shortSL, limit = shortTP)
+
+// =========================
+// PLOTS
+// =========================
+plot(bbU, color=color.red)
+plot(bbL, color=color.green)
+plot(basis, color=color.gray)
