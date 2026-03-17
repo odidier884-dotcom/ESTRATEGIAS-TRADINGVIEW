@@ -1,0 +1,114 @@
+//@version=6
+strategy("Quant ML Strategy", overlay=true, initial_capital=10000)
+
+//------------------------------------------------------------
+// INDICADORES
+//------------------------------------------------------------
+
+rsiValue = ta.rsi(close,14)
+
+// MFI en Pine v5
+mfiValue = ta.mfi(hlc3,14)
+
+//------------------------------------------------------------
+// FIBONACCI
+//------------------------------------------------------------
+
+lookback = 200
+
+highestPrice = ta.highest(high,lookback)
+lowestPrice  = ta.lowest(low,lookback)
+
+priceRange = highestPrice - lowestPrice
+
+fib236 = highestPrice - priceRange * 0.236
+fib382 = highestPrice - priceRange * 0.382
+fib50  = highestPrice - priceRange * 0.5
+fib618 = highestPrice - priceRange * 0.618
+fib786 = highestPrice - priceRange * 0.786
+
+//------------------------------------------------------------
+// DISTANCIA A FIBONACCI
+//------------------------------------------------------------
+
+distFib = math.min(
+ math.min(math.abs(close-fib236),math.abs(close-fib382)),
+ math.min(math.abs(close-fib50),math.min(math.abs(close-fib618),math.abs(close-fib786)))
+)
+
+//------------------------------------------------------------
+// NORMALIZACION
+//------------------------------------------------------------
+
+normRSI = (rsiValue-50)/50
+normMFI = (mfiValue-50)/50
+normFib = distFib/close
+
+//------------------------------------------------------------
+// MODELO ML (clasificador logístico)
+//------------------------------------------------------------
+
+w1 = input.float(0.6,"RSI weight")
+w2 = input.float(0.5,"MFI weight")
+w3 = input.float(-0.4,"Fibonacci weight")
+bias = input.float(0.1,"Bias")
+
+score = w1*normRSI + w2*normMFI + w3*normFib + bias
+
+probUp = 1/(1+math.exp(-score))
+
+//------------------------------------------------------------
+// FILTRO DE TENDENCIA
+//------------------------------------------------------------
+
+ma200 = ta.sma(close,200)
+
+bullTrend = close > ma200
+bearTrend = close < ma200
+
+//------------------------------------------------------------
+// SEÑALES
+//------------------------------------------------------------
+
+buySignal = probUp > 0.6 and bullTrend
+sellSignal = probUp < 0.4 and bearTrend
+
+//------------------------------------------------------------
+// EJECUCIÓN
+//------------------------------------------------------------
+
+if buySignal
+    strategy.entry("Long",strategy.long)
+
+if sellSignal
+    strategy.entry("Short",strategy.short)
+
+//------------------------------------------------------------
+// SALIDAS
+//------------------------------------------------------------
+
+takeProfit = 3
+stopLoss = 1.5
+
+strategy.exit("TP/SL Long","Long",
+ profit = takeProfit*syminfo.mintick*100,
+ loss = stopLoss*syminfo.mintick*100)
+
+strategy.exit("TP/SL Short","Short",
+ profit = takeProfit*syminfo.mintick*100,
+ loss = stopLoss*syminfo.mintick*100)
+
+//------------------------------------------------------------
+// GRAFICAS
+//------------------------------------------------------------
+
+plot(rsiValue,title="RSI",color=color.blue)
+plot(mfiValue,title="MFI",color=color.orange)
+
+plot(fib236,color=color.gray)
+plot(fib382,color=color.gray)
+plot(fib50,color=color.gray)
+plot(fib618,color=color.gray)
+plot(fib786,color=color.gray)
+
+plot(probUp,title="ML Probability",color=color.green)
